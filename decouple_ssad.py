@@ -44,14 +44,16 @@ predict_file = get_predict_result_path(mode, pretrain_dataset, method)
 ######################################### TRAIN ##########################################
 
 def train_operation(X, Y_label, Y_bbox, Index, LR, config):
-    bsz = config.batch_size
-    ncls = config.num_classes
+    bsz = config.batch_size  # 32，自己定义
+    ncls = config.num_classes  # 21 
 
-    net = base_feature_network(X)
+    #######第一步 构建网络，包括基本特征提取网络，main_anchor_layer,提议和分类分支########
+    net = base_feature_network(X)   # 这里也是得到一系列特征图，之后这些特征分层送入后面的mulClsReg_predict_layer等得到最终结果，再在这些最终特征图上做手脚
     MALs = main_anchor_layer(net)
     pBALs = branch_anchor_layer(MALs, 'ProposalBranch')
     cBALs = branch_anchor_layer(MALs, 'ClassificationBranch')
 
+    ######第二步  定义一系列列表存储各个网络的结果########
     # --------------------------- Main Stream -----------------------------
     full_mainAnc_class = tf.reshape(tf.constant([]), [bsz, -1, ncls])
     full_mainAnc_conf = tf.reshape(tf.constant([]), [bsz, -1])
@@ -77,9 +79,14 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
 
     full_clsAnc_BM_labels = tf.reshape(tf.constant([], dtype=tf.int32), [bsz, -1, ncls])
 
-    for i, ln in enumerate(config.layers_name):
+    #######第三步  依次对各个层操作#######
+    # 第一层: i = 0 ln = AL1
+    for i, ln in enumerate(config.layers_name): 
+        # 第一层：[32,80,24]
         mainAnc = mulClsReg_predict_layer(config, MALs[i], ln, 'mainStream')
+        # 第一层：[32,80,4]
         locAnc = biClsReg_predict_layer(config, pBALs[i], ln, 'ProposalBranch')
+        # 第一层: [32,80,24]
         clsAnc = mulClsReg_predict_layer(config, cBALs[i], ln, 'ClassificationBranch')
 
         # adopt a simple average fusion strategy to fuse the location info of proposal branch
@@ -88,16 +95,29 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
         # Although the calculation of location is independent on classification,
         # the calculation of classification is partly depend on location.
         # Read the code of anchor_bboxes_encode and loss function for details.
+        
+        #下面的操作就是将网络的生成结果进行切分（分类信息和定位信息）
+        
+        # cls_main:[32,80,22] 不明白为啥+1
+        # loc_main:[32,80,2]
         cls_main, loc_main = tf.split(mainAnc, [ncls + 1, 2], axis=2)
+        
+        # others_propBranch：[32,80,2]
+        # loc_propBranch:[32,80,2]
         others_propBranch, loc_propBranch = tf.split(locAnc, [1 + 1, 2], axis=2)
+        
+        # cls_clsBranch:[32,80,22]
+        # loc_clsBranch:[32,80,2] 分类分支同时还做了定位的工作
         cls_clsBranch, loc_clsBranch = tf.split(clsAnc, [ncls + 1, 2], axis=2)
+        
+        # 将三个分支得到的结果进行融合，得到最终分类的信息和定位的信息
         clsAnc = tf.concat([(cls_main + cls_clsBranch) / 2, (loc_clsBranch + loc_main) / 2], axis=2)
         locAnc = tf.concat([others_propBranch, (loc_propBranch + loc_main) / 2], axis=2)
 
         # --------------------------- Main Stream -----------------------------
         [mainAnc_BM_x, mainAnc_BM_w, mainAnc_BM_labels, mainAnc_BM_scores,
          mainAnc_class, mainAnc_conf, mainAnc_rx, mainAnc_rw] = \
-            anchor_bboxes_encode(mainAnc, Y_label, Y_bbox, Index, config, ln)
+            anchor_bboxes_encode(mainAnc, Y_label, Y_bbox, Index, config, ln) # mainAnc里面已经包含了一个batch网络预测的分类和定位信息，后面的参数是gt
 
         mainAnc_xmin = mainAnc_rx - mainAnc_rw / 2
         mainAnc_xmax = mainAnc_rx + mainAnc_rw / 2
@@ -162,15 +182,17 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
 
 
 def train_main(config):
-    bsz = config.batch_size
+    bsz = config.batch_size  # 自己设定的为32
 
     tf.set_random_seed(config.seed)
+    #定义一系列占位符存储后来需要加载到网络中的数据
     X = tf.placeholder(tf.float32, shape=(bsz, config.input_steps, feature_dim))
     Y_label = tf.placeholder(tf.int32, [None, config.num_classes])
     Y_bbox = tf.placeholder(tf.float32, [None, 3])
     Index = tf.placeholder(tf.int32, [bsz + 1])
     LR = tf.placeholder(tf.float32)
 
+    # 这是最重要的函数，该函数获取数据后执行训练
     optimizer, loss, trainable_variables = \
         train_operation(X, Y_label, Y_bbox, Index, LR, config)
 
@@ -191,14 +213,17 @@ def train_main(config):
         restore_checkpoint_file = join(models_dir, 'model-ep-' + str(config.steps - 1))
         model_saver.restore(sess, restore_checkpoint_file)
 
+    #获取训练需要的数据
+    #其中的每一个列表都存放了所有的数据，列表中的每一个元素都存放了一个batch的数据
     batch_train_dataX, batch_train_gt_label, batch_train_gt_info, batch_train_index = \
         get_train_data(config, mode, pretrain_dataset, True)
-    num_batch_train = len(batch_train_dataX)
+    
+    num_batch_train = len(batch_train_dataX)  # 有多少个batch的数据要加载，定义时一个batch为32，则总的数据为4741，那么batch的数量为4741/32
 
     for epoch in range(init_epoch, config.training_epochs):
 
         loss_info = []
-
+        # 每一次训练的是一个batch的数据，loss_info中记录的是每个batch的训练loss
         for idx in range(num_batch_train):
             feed_dict = {X: batch_train_dataX[idx],
                          Y_label: batch_train_gt_label[idx],
@@ -208,7 +233,7 @@ def train_main(config):
             _, out_loss = sess.run([optimizer, loss], feed_dict=feed_dict)
 
             loss_info.append(out_loss)
-
+        # 最终的loss是每个batch的loss的均值
         print ("Training epoch ", epoch, " loss: ", np.mean(loss_info))
 
         if epoch == config.training_epochs - 2 or epoch == config.training_epochs - 1:
