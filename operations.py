@@ -213,6 +213,8 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
 
         idx = 0
         # 在条件cond成立时重复body
+        # 这一步主要是为生成的anhcor按照和gt的重叠率分配正负样本标签
+        # 这一步在anchor_target_layer中完成，完成对生成的anchor的正负样本的选取和标签分配
         [idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
          match_x, match_w, match_labels, match_scores] = \
             tf.while_loop(loop_condition, loop_body,
@@ -291,6 +293,8 @@ def main_anchor_layer(net, mode=''):
         # ----------------------- Anchor layers ----------------------
         MAL1 = tf.layers.conv1d(inputs=net, filters=1024, kernel_size=3, strides=2, padding='same',
                                 activation=tf.nn.relu, kernel_initializer=initer)
+        # tensorflow的数据输入维度为[N,H,W,C]
+        # conv3d输入shape为：[batch, in_depth, in_height, in_width, in_channels]
         # [batch_size, 16, 1024]
         MAL2 = tf.layers.conv1d(inputs=MAL1, filters=1024, kernel_size=3, strides=2, padding='same',
                                 activation=tf.nn.relu, kernel_initializer=initer)
@@ -307,6 +311,7 @@ def branch_anchor_layer(MALs, name=''):
     with tf.variable_scope("branch_anchor_layer" + name):
         BAL3 = out_conv(in_conv(MAL3))  # [batch_size, 4, 1024]
 
+        #是不是因为TensorFlow中没有一维的反卷积所以才不得已用2d卷积
         BAL3_expd = tf.expand_dims(BAL3, 1)  # [batch_size, 1, 4, 1024]
         BAL3_de = tf.layers.conv2d_transpose(BAL3_expd, 1024, kernel_size=(1, 4),
                                              strides=(1, 2), padding='same')  # [batch_size, 1, 8, 1024]
