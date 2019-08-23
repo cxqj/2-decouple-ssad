@@ -68,7 +68,7 @@ def get_train_data(config, mode, pretrain_dataset, shuffle=True):
     # Since the dataX is matched with window_info.log,
     # window_info need to load from pre-defined file
     gt_label_file = join(anno_path, 'gt_label.pkl') # 获取gt_label.pkl路径
-    gt_info_file = join(anno_path, 'gt_info.pkl') # 获取gt_info.pkl路径
+    gt_info_file = join(anno_path, 'gt_info.pkl') # 获取gt_info.pkl路径，其中保存了归一化后的窗口的信息
     
     #gt_label中记录了每个特征文件的属于20个类中的某个类
     #gt_label的形式如下:[000000000100000],1代表对应的类别
