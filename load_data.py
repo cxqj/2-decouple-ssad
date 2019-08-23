@@ -140,6 +140,7 @@ def get_test_data(config, mode, pretrain_dataset):
 
     # Since the dataX is matched with window_info.log,
     # window_info need to load from pre-defined file
+    # 在window_info.log中记录了每个窗口大小为512的窗口的起始帧，因此在测试的时候需要用到这个其实帧信息
     window_info_path = join(anno_path, 'window_info.log')
     window_info = read_window_info(window_info_path)
 
@@ -168,5 +169,5 @@ def get_test_data(config, mode, pretrain_dataset):
 
         batch_dataX.append(np.array(tmp_batch_dataX))
         batch_window_info.append(tmp_batch_window_info)
-
+    # 测试仅仅需要图片的数据和窗口信息
     return batch_dataX, batch_window_info
