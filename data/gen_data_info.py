@@ -36,17 +36,22 @@ def window_data(start, anno_df, video_name, config):
     window_info = [int(start_frame), video_name]
     class_real = [0] + config.class_real  # num_classes + 1
     for i in range(len(anno_df)):
+        # 标注文件中的起始帧
         astart = anno_df.startFrame.values[i]
+        # 标注文件中的结束帧
         aend = anno_df.endFrame.values[i]
         overlap = min(end_frame, aend) - max(astart, start_frame)
         overlap_ratio = float(overlap) / (aend - astart)
         if overlap_ratio > config.overlap_ratio_threshold:
             # the overlap region is corrected
+            # 也就是对每一个box的帧索引都是从0开始的
+            # 所以在最后结果处理的时候肯定还需要根据window信息加上最开始的开始帧这样才对应了真实的窗口信息
             corrected_start = max(astart, start_frame) - start_frame
             corrected_end = min(aend, end_frame) - start_frame
             one_hot = [0] * config.num_classes
             one_hot[class_real.index(anno_df.type_idx.values[i])] = 1
             label_info.append(one_hot)
+            # box在设置的时候除以了窗口大小进行了归一化处理
             box_info.append([float(corrected_start) / config.window_size,
                              float(corrected_end) / config.window_size, overlap_ratio])
 
@@ -57,12 +62,12 @@ def window_data(start, anno_df, video_name, config):
 
 
 def slinding_window(anno_df, video_name, config, is_train=True):
-    window_size = config.window_size
-    video_anno_df = anno_df[anno_df.video == video_name]
+    window_size = config.window_size  # 512
+    video_anno_df = anno_df[anno_df.video == video_name]  # 获取视频名对应的标注信息
     frame_count = video_anno_df.frame_num.values[0]
     len_df = frame_count - 9
     if is_train:
-        stride = window_size / 4
+        stride = window_size / 4  # 窗口大小512，每隔4帧抽取一帧，所以每隔窗口抽取128帧
     else:
         # bigger step to improve efficiency for testing
         stride = window_size / 2
@@ -117,7 +122,9 @@ if __name__ == "__main__":
     # ------ val ---------
     split_set = config.train_split_set
     anno_path = get_anno_ath(split_set)
-    anno_df = get_anno_df(anno_path, split_set)
+    anno_df = get_anno_df(anno_path, split_set)  # 获取csv标注文件的路径
+    # 标注文件中的信息如下：
+    #   video_name,动作类别，动作类别索引，start_frame,end_frame,frames
 
     gt_label, gt_info, gt_window_info = video_process(anno_df, config, True)
     with open(join(anno_path, 'gt_label.pkl'), 'wb') as fw:
