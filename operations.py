@@ -59,7 +59,7 @@ def loop_condition(idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
     r = tf.less(idx, tf.shape(b_glabels))
     return r[0]
 
-#该函数是最难理解的一个函数猜测就是为生成的anchor找到匹配的gt赋予其相应的标签用于训练
+#该函数是最难理解的一个函数猜测就是为生成的一个子batch的anchor找到匹配的gt赋予其相应的标签用于训练
 def loop_body(idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
               b_match_x, b_match_w, b_match_labels, b_match_scores):
     # idx=0
@@ -97,7 +97,7 @@ def loop_body(idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
     fmask = tf.cast(mask, tf.float32)
     # Update values using mask.
     # if overlap enough, update b_match_* with gt, otherwise not update
-    #如果和gt足够接近那么直接将这些位置anchor的信息更新为gt的信息，其余位置的保留为原先生成的anchor的信息
+    #如果和gt足够接近那么直接将这些位置anchor的信息更新为gt的信息，其余位置为0来指示哪一个anhcor和gt匹配上了
     b_match_x = fmask * box_x + (1 - fmask) * b_match_x
     b_match_w = fmask * box_w + (1 - fmask) * b_match_w
 
@@ -161,7 +161,7 @@ def anchor_box_adjust(anchors, config, layer_name, pre_rx=None, pre_rw=None):
     # anchors_class=anchors[:,:,:config.num_classes]
     num_class = anchors.get_shape().as_list()[-1] - 3
     anchors_class = anchors[:, :, :num_class]  # [32,80,21]
-    return anchors_class, anchors_conf, anchors_rx, anchors_rw
+    return anchors_class, anchors_conf, anchors_rx, anchors_rw   # 这里得到的anchor_rx和anchor_rw还没有乘以window_size
 
 
 # This function is mainly used for producing matched ground truth with
@@ -171,6 +171,7 @@ def anchor_box_adjust(anchors, config, layer_name, pre_rx=None, pre_rw=None):
 
 ###这个函数可以说是最重要也是最难理解的函数，该函数负责生成anchor等操作#####
 # 参数anchor其实就是各层网络的特征图
+# gbboxes中的信息是归一化的
 def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, pre_rx=None, pre_rw=None):
   
     num_anchors = config.num_anchors[layer_name] # 每一层的anchors数目不同 (第一层 16 第二层 8 第三层 4)
@@ -180,14 +181,12 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
 
     dtype = tf.float32
 
-    # anchor_class维度为:(32,80,21)
-    # anchor_conf维度为: (32,80)
-    # anhcor_rx维度为:(32,80)
-    # anchor_rw维度为:(32,80)
-    # 生成一系列anchoe然后调整这些anchor
+    # 生成anhcor
     anchors_class, anchors_conf, anchors_rx, anchors_rw = \
         anchor_box_adjust(anchors, config, layer_name, pre_rx, pre_rw)
 
+    # batch_match是整个batch的信息
+    # match是一个batch中的其中一个结果
     batch_match_x = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox]) # (0,80)
     batch_match_w = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox]) # (0,80)
     batch_match_scores = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox]) # (0,80)
@@ -196,18 +195,19 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
 
     for i in range(config.batch_size):
         shape = (num_anchors * num_dbox)
+        
+        # x,w,score,label
         match_x = tf.zeros(shape, dtype) #(80,)
         match_w = tf.zeros(shape, dtype) #(80,)
         match_scores = tf.zeros(shape, dtype) #(80,)
-
         match_labels_other = tf.ones((num_anchors * num_dbox, 1), dtype=tf.int32)
         match_labels_class = tf.zeros((num_anchors * num_dbox, num_classes - 1), dtype=tf.int32)
         match_labels = tf.concat([match_labels_other, match_labels_class], axis=-1)
 
-        #预测某一个anchor的中心点和宽度
+        #预测某一个batch中的num_anchors*num_dbox的anchor的中心点和宽度
+        #假如batch_size = 32,那么这一步获取32个中某一个的信息（80个anchor）
         b_anchors_rx = anchors_rx[i]
         b_anchors_rw = anchors_rw[i]
-        #gt_label和gt_box
         b_glabels = glabels[Index[i]:Index[i + 1]]
         b_gbboxes = gbboxes[Index[i]:Index[i + 1]]
 
@@ -234,6 +234,10 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
         match_labels = tf.reshape(match_labels, [-1, num_anchors * num_dbox, num_classes])
         batch_match_labels = tf.concat([batch_match_labels, match_labels], axis=0)
 
+    ##anchors_class, anchors_conf, anchors_rx, anchors_rw中保存的是所有的预测结果
+    ##batch_match_x, batch_match_w, batch_match_labels, batch_match_scores中保存的所有的anchor和gt的匹配情况
+    
+    ###最终获得的结果是batch_size的预测结果和匹配情况
     return [batch_match_x, batch_match_w, batch_match_labels, batch_match_scores,
             anchors_class, anchors_conf, anchors_rx, anchors_rw]
 
@@ -267,22 +271,22 @@ def get_trainable_variables():
     return trainable_variables
 
 ######第一步 定义有关网络 包括：基本特征提取网络，main_anchor_layer,分类和提议网络#######
+
 def base_feature_network(X, mode=''):
     # main network
     initer = tf.contrib.layers.xavier_initializer(seed=5)
     with tf.variable_scope("base_feature_network" + mode):
         # ----------------------- Base layers ----------------------
-        # [batch_size, 128, 1024]
-        net = tf.layers.conv1d(inputs=X, filters=512, kernel_size=9, strides=1, padding='same',
+        net = tf.layers.conv1d(inputs=X, filters=512, kernel_size=9, strides=1, padding='same', # [bs,128,1024]--->[bs,128,512]
                                activation=tf.nn.relu, kernel_initializer=initer)
-        # [batch_size, 128, 512]
-        net = tf.layers.max_pooling1d(inputs=net, pool_size=4, strides=2, padding='same')
-        # [batch_size, 64, 512]
+        
+        net = tf.layers.max_pooling1d(inputs=net, pool_size=4, strides=2, padding='same')   # [bs,64,512]
+      
         net = tf.layers.conv1d(inputs=net, filters=512, kernel_size=9, strides=1, padding='same',
                                activation=tf.nn.relu, kernel_initializer=initer)
-        # [batch_size, 64, 512]
-        net = tf.layers.max_pooling1d(inputs=net, pool_size=4, strides=2, padding='same')
-        # [batch_size, 32, 512]
+       
+        net = tf.layers.max_pooling1d(inputs=net, pool_size=4, strides=2, padding='same')  # [bs,32,512]
+       
     return net
 
 
@@ -361,12 +365,14 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
     match_xmin = match_x - match_w / 2
     match_xmax = match_x + match_w / 2
 
+    #######正样本
     pmask = tf.cast(match_scores > 0.5, dtype=tf.float32)
     num_positive = tf.reduce_sum(pmask)
     num_entries = tf.cast(tf.size(match_scores), dtype=tf.float32)
 
+    #######hard样本(得分低但是重叠度却高)
     hmask = match_scores < 0.5
-    hmask = tf.logical_and(hmask, anchors_conf > 0.5)
+    hmask = tf.logical_and(hmask, anchors_conf > 0.5)  # conf是指的重叠度
     hmask = tf.cast(hmask, dtype=tf.float32)
     num_hard = tf.reduce_sum(hmask)
 
@@ -375,6 +381,8 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
     # then we only need `config.negative_ratio*num_positive` negative anchors
     # r_negative=(number of easy negative anchors need to choose from all easy negative) / (number of easy negative)
     # the meaning of easy negative: all-pos-hard_neg
+    
+    #####相当于随机选取一定数量的负样本
     r_negative = (config.negative_ratio - num_hard / num_positive) * num_positive / (
             num_entries - num_positive - num_hard)
     r_negative = tf.minimum(r_negative, 1)
