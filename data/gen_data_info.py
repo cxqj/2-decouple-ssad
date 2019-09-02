@@ -27,7 +27,7 @@ import numpy
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Config, get_anno_ath, get_anno_df
 
-
+# 获取一个window的信息
 def window_data(start, anno_df, video_name, config):
     start_frame = start
     end_frame = start_frame + config.window_size
@@ -42,7 +42,7 @@ def window_data(start, anno_df, video_name, config):
         aend = anno_df.endFrame.values[i]
         overlap = min(end_frame, aend) - max(astart, start_frame)
         overlap_ratio = float(overlap) / (aend - astart)
-        if overlap_ratio > config.overlap_ratio_threshold:
+        if overlap_ratio > config.overlap_ratio_threshold:   # 也就是说这个窗口中存在Gt，阈值要大于0.9
             # the overlap region is corrected
             # 也就是对每一个box的帧索引都是从0开始的
             # 所以在最后结果处理的时候肯定还需要根据window信息加上最开始的开始帧这样才对应了真实的窗口信息
@@ -95,7 +95,7 @@ def slinding_window(anno_df, video_name, config, is_train=True):
 
     return label, box_info, window_info
 
-
+# 获取所需的label,boxes,window_info
 def video_process(anno_df, config, is_train=True):
     video_name_list = list(set(anno_df.video.values[:].tolist()))  # sorted, unique
     label = []
@@ -127,6 +127,7 @@ if __name__ == "__main__":
     #   video_name,动作类别，动作类别索引，start_frame,end_frame,frames
 
     gt_label, gt_info, gt_window_info = video_process(anno_df, config, True)
+    
     with open(join(anno_path, 'gt_label.pkl'), 'wb') as fw:
         pickle.dump(gt_label, fw)
     with open(join(anno_path, 'gt_info.pkl'), 'wb') as fw:
