@@ -44,8 +44,8 @@ predict_file = get_predict_result_path(mode, pretrain_dataset, method)
 ######################################### TRAIN ##########################################
 
 def train_operation(X, Y_label, Y_bbox, Index, LR, config):
-    bsz = config.batch_size  # 32，自己定义
-    ncls = config.num_classes  # 21 
+    bsz = config.batch_size  
+    ncls = config.num_classes 
 
     #######第一步 构建网络，包括基本特征提取网络，main_anchor_layer,提议和分类分支########
     net = base_feature_network(X)   # 这里也是得到一系列特征图，之后这些特征分层送入后面的mulClsReg_predict_layer等得到最终结果，再在这些最终特征图上做手脚
@@ -80,13 +80,9 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
     full_clsAnc_BM_labels = tf.reshape(tf.constant([], dtype=tf.int32), [bsz, -1, ncls])
 
     #######第三步  依次对各个层操作#######
-    # 第一层: i = 0 ln = AL1
     for i, ln in enumerate(config.layers_name): 
-        # 第一层：[32,80,24]
         mainAnc = mulClsReg_predict_layer(config, MALs[i], ln, 'mainStream')
-        # 第一层：[32,80,4]
         locAnc = biClsReg_predict_layer(config, pBALs[i], ln, 'ProposalBranch')
-        # 第一层: [32,80,24]
         clsAnc = mulClsReg_predict_layer(config, cBALs[i], ln, 'ClassificationBranch')
 
         # adopt a simple average fusion strategy to fuse the location info of proposal branch
@@ -115,6 +111,15 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
         locAnc = tf.concat([others_propBranch, (loc_propBranch + loc_main) / 2], axis=2)
 
         # --------------------------- Main Stream -----------------------------
+        
+        """
+          ##anchors_class, anchors_conf, anchors_rx, anchors_rw中保存的是所有的预测结果
+          ##batch_match_x, batch_match_w, batch_match_labels, batch_match_scores中保存的所有的anchor和gt的匹配情况
+    
+          ###最终获得的结果是batch_size的预测结果和匹配情况
+          return [batch_match_x, batch_match_w, batch_match_labels, batch_match_scores,
+            anchors_class, anchors_conf, anchors_rx, anchors_rw]
+        """
         [mainAnc_BM_x, mainAnc_BM_w, mainAnc_BM_labels, mainAnc_BM_scores,
          mainAnc_class, mainAnc_conf, mainAnc_rx, mainAnc_rw] = \
             anchor_bboxes_encode(mainAnc, Y_label, Y_bbox, Index, config, ln) # mainAnc里面已经包含了一个batch网络预测的分类和定位信息，后面的参数是gt
@@ -122,11 +127,13 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
         mainAnc_xmin = mainAnc_rx - mainAnc_rw / 2
         mainAnc_xmax = mainAnc_rx + mainAnc_rw / 2
 
+        ######预测结果
         full_mainAnc_class = tf.concat([full_mainAnc_class, mainAnc_class], axis=1)
         full_mainAnc_conf = tf.concat([full_mainAnc_conf, mainAnc_conf], axis=1)
         full_mainAnc_xmin = tf.concat([full_mainAnc_xmin, mainAnc_xmin], axis=1)
         full_mainAnc_xmax = tf.concat([full_mainAnc_xmax, mainAnc_xmax], axis=1)
 
+        #####和gt的匹配情况
         full_mainAnc_BM_x = tf.concat([full_mainAnc_BM_x, mainAnc_BM_x], axis=1)
         full_mainAnc_BM_w = tf.concat([full_mainAnc_BM_w, mainAnc_BM_w], axis=1)
         full_mainAnc_BM_labels = tf.concat([full_mainAnc_BM_labels, mainAnc_BM_labels], axis=1)
