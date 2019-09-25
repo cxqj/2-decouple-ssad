@@ -103,6 +103,7 @@ def loop_body(idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
 
     ref_label = tf.zeros(tf.shape(b_match_labels), dtype=tf.int32)
     ref_label = ref_label + label
+    # 对角矩阵左乘一个矩阵相对于与对应行元素相乘
     b_match_labels = tf.matmul(tf.diag(imask), ref_label) + tf.matmul(tf.diag(1 - imask), b_match_labels)
 
     b_match_scores = tf.maximum(jaccards, b_match_scores)
@@ -381,8 +382,8 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
     # then we only need `config.negative_ratio*num_positive` negative anchors
     # r_negative=(number of easy negative anchors need to choose from all easy negative) / (number of easy negative)
     # the meaning of easy negative: all-pos-hard_neg
+    # easy negative anchors : 所有的的正样本和难份样本
     
-    #####相当于随机选取一定数量的负样本
     r_negative = (config.negative_ratio - num_hard / num_positive) * num_positive / (
             num_entries - num_positive - num_hard)
     r_negative = tf.minimum(r_negative, 1)
@@ -419,7 +420,7 @@ def min_max_norm(X):
     # map [0,1] -> [0.5,0.73] (almost linearly) ([-1, 0] -> [0.26, 0.5])
     return 1.0 / (1.0 + np.exp(-1.0 * X))
 
-
+# 每一个视频名的结果
 def post_process(df, config):
     class_scores_class = [(df['score_' + str(i)]).values[:].tolist() for i in range(21)]
     class_scores_seg = [[class_scores_class[j][i] for j in range(21)] for i in range(len(df))]
@@ -431,9 +432,9 @@ def post_process(df, config):
     class_type_list = []
     class_score_list = []
     for i in range(len(df)):
-        class_score = np.array(class_scores_seg[i][1:]) * min_max_norm(df.conf.values[i])
+        class_score = np.array(class_scores_seg[i][1:]) * min_max_norm(df.conf.values[i])  # 最终的得分是分类得分乘以归一化的conf
         class_score = class_score.tolist()
-        class_type = class_real[class_score.index(max(class_score)) + 1]
+        class_type = class_real[class_score.index(max(class_score)) + 1]  # 选取得分最高的作为类别
         class_type_list.append(class_type)
         class_score_list.append(max(class_score))
 
@@ -482,7 +483,7 @@ def post_process(df, config):
 
     # resultDf1=resultDf1[resultDf1.out_score>0.05]
 
-    resultDf1['video_name'] = [df['video_name'].values[0] for _ in range(len(resultDf1))]
+    resultDf1['video_name'] = [df['video_name'].values[0] for _ in range(len(resultDf1))]  # 最终输入到txt文件中的是(video_name,start,end,type,score)
     return resultDf1
 
 
@@ -569,10 +570,12 @@ def result_process(batch_win_info, batch_result_class,
     out_df = pandas.DataFrame(columns=config.outdf_columns)
     for j in range(config.batch_size):
         tmp_df = pandas.DataFrame()
+        # ground truth的窗口
         win_info = batch_win_info[batch_idx][j]  # one sample in window_info.log
         # the following four attributes are produced by the above one 
         # winInfo sample, 108 kinds of anchors are the
         # combination of different layer types and scale ratios
+        # 预测结果
         result_class = batch_result_class[batch_idx][j]
         result_xmin = batch_result_xmin[batch_idx][j]
         result_xmax = batch_result_xmax[batch_idx][j]
@@ -581,7 +584,7 @@ def result_process(batch_win_info, batch_result_class,
         num_box = len(result_class)  # (16*5+8*5+4*5) = sum of num_anchors*num_dbox
 
         video_name = win_info[1]
-        tmp_df['video_name'] = [video_name] * num_box
+        tmp_df['video_name'] = [video_name] * num_box   
         tmp_df['start'] = [int(win_info[0])] * num_box
         tmp_df['conf'] = result_conf
         tmp_df['xmin'] = result_xmin
@@ -589,6 +592,7 @@ def result_process(batch_win_info, batch_result_class,
 
         tmp_df.xmin = numpy.maximum(tmp_df.xmin, 0)
         tmp_df.xmax = numpy.minimum(tmp_df.xmax, config.window_size)
+        # 获取真实的帧起始和结束，因为预测时都是从0开始的
         tmp_df.xmin = tmp_df.xmin + tmp_df.start
         tmp_df.xmax = tmp_df.xmax + tmp_df.start
 
@@ -600,7 +604,7 @@ def result_process(batch_win_info, batch_result_class,
             tmp_df = tmp_df[tmp_df.score_0 < config.filter_neg_threshold]
         out_df = pandas.concat([out_df, tmp_df])
 
-    return out_df
+    return out_df  # 获取到了所有的行的80个bbox的结果
 
 
 def final_result_process(stage, pretrain_dataset, config, mode, method, method_temporal='', df=None):
@@ -632,6 +636,7 @@ def final_result_process(stage, pretrain_dataset, config, mode, method, method_t
     video_name_list = list(set(df.video_name.values[:]))
     # print "len(video_name_list):", len(video_name_list) # 210
 
+    # 对每一个视频名的数据处理
     for video_name in video_name_list:
         tmpdf = df[df.video_name == video_name]
         tmpdf = post_process(tmpdf, config)
@@ -642,4 +647,4 @@ def final_result_process(stage, pretrain_dataset, config, mode, method, method_t
         diving_df.loc[:, 'out_type'] = 26
         tmpdf = pd.concat([tmpdf, diving_df])
 
-        temporal_nms(config, tmpdf, result_file, video_name)
+        temporal_nms(config, tmpdf, result_file, video_name)   # 处理获得txt文件
