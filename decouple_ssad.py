@@ -81,9 +81,9 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
 
     #######第三步  依次对各个层操作#######
     for i, ln in enumerate(config.layers_name): 
-        mainAnc = mulClsReg_predict_layer(config, MALs[i], ln, 'mainStream')
-        locAnc = biClsReg_predict_layer(config, pBALs[i], ln, 'ProposalBranch')
-        clsAnc = mulClsReg_predict_layer(config, cBALs[i], ln, 'ClassificationBranch')
+        mainAnc = mulClsReg_predict_layer(config, MALs[i], ln, 'mainStream')  # (1,80,24)
+        locAnc = biClsReg_predict_layer(config, pBALs[i], ln, 'ProposalBranch') # (1,80,4)
+        clsAnc = mulClsReg_predict_layer(config, cBALs[i], ln, 'ClassificationBranch') # (1,80,24)
 
         # adopt a simple average fusion strategy to fuse the location info of proposal branch
         # and main stream, and the class scores of classification branch and main stream.
@@ -106,7 +106,7 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
         # loc_clsBranch:[32,80,2] 分类分支同时还做了定位的工作
         cls_clsBranch, loc_clsBranch = tf.split(clsAnc, [ncls + 1, 2], axis=2)
         
-        # 将三个分支得到的结果进行融合，得到最终分类的信息和定位的信息
+        # 将主流的信息拆分后添加到两个分支中
         clsAnc = tf.concat([(cls_main + cls_clsBranch) / 2, (loc_clsBranch + loc_main) / 2], axis=2)
         locAnc = tf.concat([others_propBranch, (loc_propBranch + loc_main) / 2], axis=2)
 
@@ -273,11 +273,14 @@ def test_operation(X, config):
         cls_main, loc_main = tf.split(mainAnc, [ncls + 1, 2], axis=2)
         others_propBranch, loc_propBranch = tf.split(locAnc, [1 + 1, 2], axis=2)
         cls_clsBranch, loc_clsBranch = tf.split(clsAnc, [ncls + 1, 2], axis=2)
+        
+        # 将mainAnc拆分后融合到分类和定位分支中
         clsAnc = tf.concat([(cls_main + cls_clsBranch) / 2, (loc_clsBranch + loc_main) / 2], axis=2)
         locAnc = tf.concat([others_propBranch, (loc_propBranch + loc_main) / 2], axis=2)
 
-        clsAnc_class, _, _, _ = anchor_box_adjust(clsAnc, config, ln)
-        _, locAnc_conf, locAnc_rx, locAnc_rw = anchor_box_adjust(locAnc, config, ln)
+        # 测试的时候只调用了box_adjust
+        clsAnc_class, _, _, _ = anchor_box_adjust(clsAnc, config, ln)   # 分类分支获取分类得分
+        _, locAnc_conf, locAnc_rx, locAnc_rw = anchor_box_adjust(locAnc, config, ln)  # 提议分支获取置信度，中心点和宽度
 
         locAnc_xmin = locAnc_rx - locAnc_rw / 2
         locAnc_xmax = locAnc_rx + locAnc_rw / 2
@@ -287,7 +290,7 @@ def test_operation(X, config):
         full_locAnc_xmin = tf.concat([full_locAnc_xmin, locAnc_xmin], axis=1)
         full_locAnc_xmax = tf.concat([full_locAnc_xmax, locAnc_xmax], axis=1)
 
-    full_clsAnc_class = tf.nn.softmax(full_clsAnc_class, dim=-1)
+    full_clsAnc_class = tf.nn.softmax(full_clsAnc_class, dim=-1)  # 获取分类概率
     return full_clsAnc_class, full_locAnc_conf, full_locAnc_xmin, full_locAnc_xmax
 
 
@@ -299,6 +302,11 @@ def test_main(config):
     anchors_class, anchors_conf, anchors_xmin, anchors_xmax = test_operation(X, config)
 
     model_saver = tf.train.Saver()
+    '''
+    tf.InteractiveSession()来构建会话的时候，我们可以先构建一个session然后再定义操作（operation），
+    如果我们使用tf.Session()来构建会话我们需要在会话构建之前定义好全部的操作（operation）然后再构建会话。
+    
+    '''
     sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=False))
     tf.global_variables_initializer().run()
     model_saver.restore(sess, test_checkpoint_file)
