@@ -156,7 +156,7 @@ def anchor_box_adjust(anchors, config, layer_name, pre_rx=None, pre_rw=None):
     # dboxes_x : [0.03125,0.03975.....]
     # 根据预设的基本anchoe和网络生成的坐标变换信息进行变换后的结果
     # 也就是生成了我们需要的anchor，相当于反变换
-    anchors_rx = anchors_rx * dboxes_w * 0.1 + dboxes_x
+    anchors_rx = anchors_rx * dboxes_w * 0.1 + dboxes_x   # 参数化的坐标回归
     anchors_rw = tf.exp(0.1 * anchors_rw) * dboxes_w
 
     # anchors_class=anchors[:,:,:config.num_classes]
