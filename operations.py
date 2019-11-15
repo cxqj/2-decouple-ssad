@@ -491,7 +491,7 @@ def temporal_nms(config, dfNMS, filename, videoname):
     nms_threshold = config.nms_threshold
     fo = open(filename, 'a')
 
-    typeSet = list(set(dfNMS.out_type.values[:]))
+    typeSet = list(set(dfNMS.out_type.values[:]))  # 获取某个视频的所有预测类别
     for t in typeSet:
         tdf = dfNMS[dfNMS.out_type == t]
 
