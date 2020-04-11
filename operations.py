@@ -169,14 +169,9 @@ def anchor_box_adjust(anchors, config, layer_name, pre_rx=None, pre_rw=None):
 # each adjusted anchors after predicting one by one
 # the matched ground truth may be positive/negative,
 # the matched x,w,labels,scores all corresponding to this anchor
-
-###这个函数可以说是最重要也是最难理解的函数，该函数负责生成anchor等操作#####
-# 参数anchor其实就是各层网络的特征图
-# gbboxes中的信息是归一化的
 def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, pre_rx=None, pre_rw=None):
-  
-    num_anchors = config.num_anchors[layer_name] # 每一层的anchors数目不同 (第一层 16 第二层 8 第三层 4)
-    num_dbox = config.num_dbox[layer_name] # 5 不知道这个参数干嘛的
+    num_anchors = config.num_anchors[layer_name] # (16,8,4)
+    num_dbox = config.num_dbox[layer_name] # 5 
     # num_classes = config.num_classes
     num_classes = anchors.get_shape().as_list()[-1] - 3  # 21 
 
@@ -198,9 +193,9 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
         shape = (num_anchors * num_dbox)
         
         # x,w,score,label
-        match_x = tf.zeros(shape, dtype) #(80,)
-        match_w = tf.zeros(shape, dtype) #(80,)
-        match_scores = tf.zeros(shape, dtype) #(80,)
+        match_x = tf.zeros(shape, dtype)   #(80,)
+        match_w = tf.zeros(shape, dtype)   #(80,)
+        match_scores = tf.zeros(shape, dtype)   #(80,)
         match_labels_other = tf.ones((num_anchors * num_dbox, 1), dtype=tf.int32)
         match_labels_class = tf.zeros((num_anchors * num_dbox, num_classes - 1), dtype=tf.int32)
         match_labels = tf.concat([match_labels_other, match_labels_class], axis=-1)
