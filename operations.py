@@ -97,13 +97,13 @@ def loop_body(idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
     fmask = tf.cast(mask, tf.float32)
     # Update values using mask.
     # if overlap enough, update b_match_* with gt, otherwise not update
-    #如果和gt足够接近那么直接将这些位置anchor的信息更新为gt的信息，其余位置为0来指示哪一个anhcor和gt匹配上了
+    #如果和gt足够接近那么直接将这些位置anchor的信息更新为gt的信息，其余位置不更新，用的是预测值
     b_match_x = fmask * box_x + (1 - fmask) * b_match_x
     b_match_w = fmask * box_w + (1 - fmask) * b_match_w
 
     ref_label = tf.zeros(tf.shape(b_match_labels), dtype=tf.int32)
     ref_label = ref_label + label
-    # 对角矩阵左乘一个矩阵相对于与对应行元素相乘
+    # imask为1的位置为gt_label,其余位置为背景类
     b_match_labels = tf.matmul(tf.diag(imask), ref_label) + tf.matmul(tf.diag(1 - imask), b_match_labels)
 
     b_match_scores = tf.maximum(jaccards, b_match_scores)
