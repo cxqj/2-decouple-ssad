@@ -92,9 +92,7 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
         # the calculation of classification is partly depend on location.
         # Read the code of anchor_bboxes_encode and loss function for details.
         
-        #下面的操作就是将网络的生成结果进行切分（分类信息和定位信息）
-        
-        # cls_main:[32,80,22] 不明白为啥+1
+        # cls_main:[32,80,22] 
         # loc_main:[32,80,2]
         cls_main, loc_main = tf.split(mainAnc, [ncls + 1, 2], axis=2)
         
@@ -103,10 +101,9 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
         others_propBranch, loc_propBranch = tf.split(locAnc, [1 + 1, 2], axis=2)
         
         # cls_clsBranch:[32,80,22]
-        # loc_clsBranch:[32,80,2] 分类分支同时还做了定位的工作
+        # loc_clsBranch:[32,80,2] 
         cls_clsBranch, loc_clsBranch = tf.split(clsAnc, [ncls + 1, 2], axis=2)
         
-        # 将主流的信息拆分后添加到两个分支中
         clsAnc = tf.concat([(cls_main + cls_clsBranch) / 2, (loc_clsBranch + loc_main) / 2], axis=2)
         locAnc = tf.concat([others_propBranch, (loc_propBranch + loc_main) / 2], axis=2)
 
@@ -115,14 +112,10 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
         """
           ##anchors_class, anchors_conf, anchors_rx, anchors_rw中保存的是所有的预测结果
           ##batch_match_x, batch_match_w, batch_match_labels, batch_match_scores中保存的所有的anchor和gt的匹配情况
-    
-          ###最终获得的结果是batch_size的预测结果和匹配情况
-          return [batch_match_x, batch_match_w, batch_match_labels, batch_match_scores,
-            anchors_class, anchors_conf, anchors_rx, anchors_rw]
         """
         [mainAnc_BM_x, mainAnc_BM_w, mainAnc_BM_labels, mainAnc_BM_scores,
          mainAnc_class, mainAnc_conf, mainAnc_rx, mainAnc_rw] = \
-            anchor_bboxes_encode(mainAnc, Y_label, Y_bbox, Index, config, ln) # mainAnc里面已经包含了一个batch网络预测的分类和定位信息，后面的参数是gt
+            anchor_bboxes_encode(mainAnc, Y_label, Y_bbox, Index, config, ln) 
 
         mainAnc_xmin = mainAnc_rx - mainAnc_rw / 2
         mainAnc_xmax = mainAnc_rx + mainAnc_rw / 2
@@ -189,13 +182,13 @@ def train_operation(X, Y_label, Y_bbox, Index, LR, config):
 
 
 def train_main(config):
-    bsz = config.batch_size  # 自己设定的为32
+    bsz = config.batch_size  
 
     tf.set_random_seed(config.seed)
-    #定义一系列占位符存储后来需要加载到网络中的数据
+    
     X = tf.placeholder(tf.float32, shape=(bsz, config.input_steps, feature_dim))
     Y_label = tf.placeholder(tf.int32, [None, config.num_classes])
-    Y_bbox = tf.placeholder(tf.float32, [None, 3])
+    Y_bbox = tf.placeholder(tf.float32, [None, 3])  # 3 for 归一化的起始帧，归一化的结束帧，overlap_ratio
     Index = tf.placeholder(tf.int32, [bsz + 1])
     LR = tf.placeholder(tf.float32)
 
