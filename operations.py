@@ -378,9 +378,9 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
     # r_negative=(number of easy negative anchors need to choose from all easy negative) / (number of easy negative)
     # the meaning of easy negative: all-pos-hard_neg
     # easy negative anchors : 所有的的正样本和难份样本
-    
+    # num_entries - num_positive - num_hard 为易分的负样本
     r_negative = (config.negative_ratio - num_hard / num_positive) * num_positive / (
-            num_entries - num_positive - num_hard)
+            num_entries - num_positive - num_hard)  
     r_negative = tf.minimum(r_negative, 1)
     nmask = tf.random_uniform(tf.shape(pmask), dtype=tf.float32)
     nmask = nmask * (1. - pmask)
