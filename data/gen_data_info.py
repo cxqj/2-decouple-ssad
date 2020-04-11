@@ -144,3 +144,5 @@ if __name__ == "__main__":
     _, _, gt_window_info = video_process(anno_df, config, False)
     with open(join(anno_path, 'window_info.log'), 'w') as fw:
         fw.writelines("%d, %s\n" % (window_info[0], window_info[1]) for window_info in gt_window_info)
+        
+        
