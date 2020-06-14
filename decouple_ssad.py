@@ -282,8 +282,9 @@ def test_operation(X, config):
         full_locAnc_conf = tf.concat([full_locAnc_conf, locAnc_conf], axis=1)
         full_locAnc_xmin = tf.concat([full_locAnc_xmin, locAnc_xmin], axis=1)
         full_locAnc_xmax = tf.concat([full_locAnc_xmax, locAnc_xmax], axis=1)
-
-    full_clsAnc_class = tf.nn.softmax(full_clsAnc_class, dim=-1)  # 获取分类概率
+        
+    # 测试是的分类概率是经过softmax后得到的
+    full_clsAnc_class = tf.nn.softmax(full_clsAnc_class, dim=-1)  
     return full_clsAnc_class, full_locAnc_conf, full_locAnc_xmin, full_locAnc_xmax
 
 
@@ -321,6 +322,7 @@ def test_main(config):
 
     outDf = pd.DataFrame(columns=config.outdf_columns)
 
+    # 将结果写入csv文件
     for i in range(num_batch):
         tmpDf = result_process(batch_winInfo, batch_result_class, batch_result_conf,
                                batch_result_xmin, batch_result_xmax, config, i)
