@@ -169,3 +169,5 @@ def get_test_data(config, mode, pretrain_dataset):
         batch_window_info.append(tmp_batch_window_info)
     # 测试仅仅需要图片的数据和窗口信息
     return batch_dataX, batch_window_info
+
+
