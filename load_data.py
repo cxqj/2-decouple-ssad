@@ -40,21 +40,19 @@ def read_pickle(path):
 
 
 ############################# GET TRAIN DATA ##############################
-#个人觉得这个函数是将的到的batch数据拼接到一个数组中
-#例如batch_size为32,第一个数据对应的gt_label有4个，第二个数据对应的gtlabel有3个，则将这些数据都拼接在一个数组中
-#batch_start_index中对应的就是每个数据对应的gt_label/gt_info的在数据中的起始
+# 由于一个batch可能存在多个gt标注，这里是将所有的gt遍历出来并记录下每个batch对应在新gt标注数组中的位置
 def batch_data_process(batch_data):
     batch_size = len(batch_data) # 32
-    #这句好像没有用
-    new_batch_data = np.array(np.ones([1, batch_data[0].shape[1]])) # 构造一个大小为(1,21)数组 [[1. 1. 1. 1. ......1. 1.]]
+   
+    new_batch_data = np.array(np.ones([1, batch_data[0].shape[1]])) 
     batch_start_index = [0]
     for i in range(batch_size):
-        #将原始的batch_data拼接在新构造的batch_data后面
         new_batch_data = np.concatenate((new_batch_data, batch_data[i]))
         if i < (batch_size - 1):
             batch_start_index.append(batch_start_index[-1] + len(batch_data[i]))
     new_batch_data = new_batch_data[1:]
     batch_start_index.append(len(new_batch_data))
+    
     #返回由原先数据构成一个整体后的数据和每个子数据对应的其实索引
     return new_batch_data, np.array(batch_start_index)
 
