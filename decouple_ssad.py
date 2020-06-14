@@ -354,3 +354,5 @@ if __name__ == "__main__":
     else:
         print ("No stage", stage, "Please choose a stage from train/test/fuse/train_test_fuse.")
     print ("Elapsed time:", elapsed_time, "start time:", start_time)
+    
+    
