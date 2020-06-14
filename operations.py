@@ -369,6 +369,7 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
     # then we only need `config.negative_ratio*num_positive` negative anchors
     # r_negative=(number of easy negative anchors need to choose from all easy negative) / (number of easy negative)
     # the meaning of easy negative: all-pos-hard_neg
+    # 这里是事先假定了
     #----------------------------------------------------------------------------------------------------------------------------
     #               (1-num_hard/num_positive)*num_positive        (num_positive-num_hard)       (negative_nums-num_hard)
     #r_negative = ------------------------------------------ =   --------------------------- = ---------------------------
@@ -378,8 +379,10 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
     r_negative = (config.negative_ratio - num_hard / num_positive) * num_positive / (
             num_entries - num_positive - num_hard)  
     r_negative = tf.minimum(r_negative, 1)
-    nmask = tf.random_uniform(tf.shape(pmask), dtype=tf.float32)
-    nmask = nmask * (1. - pmask)
+    
+    # 获取nmask
+    nmask = tf.random_uniform(tf.shape(pmask), dtype=tf.float32)  # 注意nmask是随机生成的服从均匀分布
+    nmask = nmask * (1. - pmask)   # 乘以(1-pmask)和(1-hmask)就可以避免选中这些位置
     nmask = nmask * (1. - hmask)
     nmask = tf.cast(nmask > (1. - r_negative), dtype=tf.float32)
 
