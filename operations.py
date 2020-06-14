@@ -87,7 +87,7 @@ def loop_body(idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
 
     # jaccards > b_match_scores > -0.5 & jaccards > matching_threshold
     
-    #预测anchor和gt计算得到交并比，下面就是将满足条件的anchor选取出来，mask中相当于记录了满足条件的anchor的索引
+    #获取IOU>0.5提议对应的mask
     mask = tf.greater(jaccards, b_match_scores)
     matching_threshold = 0.5
     mask = tf.logical_and(mask, tf.greater(jaccards, matching_threshold))
@@ -95,18 +95,20 @@ def loop_body(idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
 
     imask = tf.cast(mask, tf.int32)
     fmask = tf.cast(mask, tf.float32)
-    # Update values using mask.
-    # if overlap enough, update b_match_* with gt, otherwise not update
+   
+
     #如果和gt足够接近那么直接将这些位置anchor的信息更新为gt的信息，其余位置不更新，用的是预测值
-    b_match_x = fmask * box_x + (1 - fmask) * b_match_x
-    b_match_w = fmask * box_w + (1 - fmask) * b_match_w
+    b_match_x = fmask * box_x + (1 - fmask) * b_match_x  #(80,)
+    b_match_w = fmask * box_w + (1 - fmask) * b_match_w  #(80,)
 
-    ref_label = tf.zeros(tf.shape(b_match_labels), dtype=tf.int32)
+    #将gt_label拓展到和预测结果相同的维度
+    ref_label = tf.zeros(tf.shape(b_match_labels), dtype=tf.int32)  #(80,21)
     ref_label = ref_label + label
-    # imask为1的位置为gt_label,其余位置为背景类
-    b_match_labels = tf.matmul(tf.diag(imask), ref_label) + tf.matmul(tf.diag(1 - imask), b_match_labels)
+    
+    # 只保留IOU>0.5的提议对应的gt_label标注
+    b_match_labels = tf.matmul(tf.diag(imask), ref_label) + tf.matmul(tf.diag(1 - imask), b_match_labels)  #(80,21)
 
-    b_match_scores = tf.maximum(jaccards, b_match_scores)
+    b_match_scores = tf.maximum(jaccards, b_match_scores)  #(80,)
     return [idx + 1, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
             b_match_x, b_match_w, b_match_labels, b_match_scores]
 
@@ -127,8 +129,8 @@ def default_box(layer_steps, scale, a_ratios):
         for j in range(len(a_ratios)):
             width_default.append(width_set[j])
             center_default.append(center_set[i])
-    width_default = np.array(width_default)  # 80，是因为有16个中心点，每个中心点会有5中宽度
-    center_default = np.array(center_default) # 16，对应16个中心点
+    width_default = np.array(width_default)  # (80,)
+    center_default = np.array(center_default) # (80,)
     return width_default, center_default
 
 
@@ -145,49 +147,41 @@ def anchor_box_adjust(anchors, config, layer_name, pre_rx=None, pre_rw=None):
         dboxes_x = pre_rx
         dboxes_w = pre_rw
     
-    # anchors的维度为(32,80,24),最后一维24可以理解为:21个类别+conf+rx+rw
-    # 说白了网络预测出来了anchor的变换信息
+    # 获取每个预测anchor的预测结果
     anchors_conf = anchors[:, :, -3]  # conf信息
-    # anchors_conf=tf.nn.sigmoid(anchors_conf)
     anchors_rx = anchors[:, :, -2]  # rx信息
     anchors_rw = anchors[:, :, -1]  # rw信息
-
-    # dboxes_w : [0.03125,0.0468750,0.0625......]
-    # dboxes_x : [0.03125,0.03975.....]
-    # 根据预设的基本anchoe和网络生成的坐标变换信息进行变换后的结果
-    # 也就是生成了我们需要的anchor，相当于反变换
-    anchors_rx = anchors_rx * dboxes_w * 0.1 + dboxes_x   # 参数化的坐标回归
+    anchors_rx = anchors_rx * dboxes_w * 0.1 + dboxes_x   # 参数化的坐标回归(activate这里可能有问题)
     anchors_rw = tf.exp(0.1 * anchors_rw) * dboxes_w
 
-    # anchors_class=anchors[:,:,:config.num_classes]
     num_class = anchors.get_shape().as_list()[-1] - 3
     anchors_class = anchors[:, :, :num_class]  # [32,80,21]
-    return anchors_class, anchors_conf, anchors_rx, anchors_rw   # 这里得到的anchor_rx和anchor_rw还没有乘以window_size
+    return anchors_class, anchors_conf, anchors_rx, anchors_rw  
 
 
 # This function is mainly used for producing matched ground truth with
 # each adjusted anchors after predicting one by one
 # the matched ground truth may be positive/negative,
 # the matched x,w,labels,scores all corresponding to this anchor
+
+# 获取每个预设anchor对应的gt标签
 def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, pre_rx=None, pre_rw=None):
     num_anchors = config.num_anchors[layer_name] # (16,8,4)
     num_dbox = config.num_dbox[layer_name] # 5 
-    # num_classes = config.num_classes
     num_classes = anchors.get_shape().as_list()[-1] - 3  # 21 
 
     dtype = tf.float32
 
-    # 生成anhcor
+    # 获取预设anchor及网络的预测结果
     anchors_class, anchors_conf, anchors_rx, anchors_rw = \
         anchor_box_adjust(anchors, config, layer_name, pre_rx, pre_rw)
 
-    # batch_match是整个batch的信息
-    # match是一个batch中的其中一个结果
-    batch_match_x = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox]) # (0,80)
-    batch_match_w = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox]) # (0,80)
-    batch_match_scores = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox]) # (0,80)
+    # 保存所有batch的结果
+    batch_match_x = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox])       # (B,80)
+    batch_match_w = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox])       # (B,80)
+    batch_match_scores = tf.reshape(tf.constant([]), [-1, num_anchors * num_dbox])  # (B,80)
     batch_match_labels = tf.reshape(tf.constant([], dtype=tf.int32),
-                                    [-1, num_anchors * num_dbox, num_classes]) # (0,80,21)
+                                    [-1, num_anchors * num_dbox, num_classes])      # (B,80,21)
 
     for i in range(config.batch_size):
         shape = (num_anchors * num_dbox)
@@ -198,7 +192,7 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
         match_scores = tf.zeros(shape, dtype)   #(80,)
         match_labels_other = tf.ones((num_anchors * num_dbox, 1), dtype=tf.int32)
         match_labels_class = tf.zeros((num_anchors * num_dbox, num_classes - 1), dtype=tf.int32)
-        match_labels = tf.concat([match_labels_other, match_labels_class], axis=-1)
+        match_labels = tf.concat([match_labels_other, match_labels_class], axis=-1)  #(80,21)
 
         #预测某一个batch中的num_anchors*num_dbox的anchor的中心点和宽度
         #假如batch_size = 32,那么这一步获取32个中某一个的信息（80个anchor）
@@ -207,10 +201,8 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
         b_glabels = glabels[Index[i]:Index[i + 1]]
         b_gbboxes = gbboxes[Index[i]:Index[i + 1]]
 
+        # idx指示当前是哪一个gt_label,因为一个视频可能有多个gt_label
         idx = 0
-        # 在条件cond成立时重复body
-        # 这一步主要是为生成的anhcor按照和gt的重叠率分配正负样本标签
-        # 这一步在anchor_target_layer中完成，完成对生成的anchor的正负样本的选取和标签分配
         [idx, b_anchors_rx, b_anchors_rw, b_glabels, b_gbboxes,
          match_x, match_w, match_labels, match_scores] = \
             tf.while_loop(loop_condition, loop_body,
@@ -218,16 +210,16 @@ def anchor_bboxes_encode(anchors, glabels, gbboxes, Index, config, layer_name, p
                            b_glabels, b_gbboxes,
                            match_x, match_w, match_labels, match_scores])
 
-        match_x = tf.reshape(match_x, [-1, num_anchors * num_dbox])
-        batch_match_x = tf.concat([batch_match_x, match_x], axis=0)
+        match_x = tf.reshape(match_x, [-1, num_anchors * num_dbox])  #(80,)-->(1,80)
+        batch_match_x = tf.concat([batch_match_x, match_x], axis=0)  # 按batch维度拼接  (B,80)
 
-        match_w = tf.reshape(match_w, [-1, num_anchors * num_dbox])
+        match_w = tf.reshape(match_w, [-1, num_anchors * num_dbox])  #(80,)-->(1,80)
         batch_match_w = tf.concat([batch_match_w, match_w], axis=0)
 
-        match_scores = tf.reshape(match_scores, [-1, num_anchors * num_dbox])
+        match_scores = tf.reshape(match_scores, [-1, num_anchors * num_dbox])  #(80,)-->(1,80)
         batch_match_scores = tf.concat([batch_match_scores, match_scores], axis=0)
 
-        match_labels = tf.reshape(match_labels, [-1, num_anchors * num_dbox, num_classes])
+        match_labels = tf.reshape(match_labels, [-1, num_anchors * num_dbox, num_classes])  #(80,21)-->(1,80,21)
         batch_match_labels = tf.concat([batch_match_labels, match_labels], axis=0)
 
     ##anchors_class, anchors_conf, anchors_rx, anchors_rw中保存的是所有的预测结果
@@ -377,8 +369,12 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
     # then we only need `config.negative_ratio*num_positive` negative anchors
     # r_negative=(number of easy negative anchors need to choose from all easy negative) / (number of easy negative)
     # the meaning of easy negative: all-pos-hard_neg
-    # easy negative anchors : 所有的的正样本和难份样本
-    # num_entries - num_positive - num_hard 为易分的负样本
+    #----------------------------------------------------------------------------------------------------------------------------
+    #               (1-num_hard/num_positive)*num_positive        (num_positive-num_hard)       (negative_nums-num_hard)
+    #r_negative = ------------------------------------------ =   --------------------------- = ---------------------------
+    #                (total_anchor-num_positive-num_hard)              num_negative                  num_negative（就是易分的负样本）
+    #-----------------------------------------------------------------------------------------------------------------------------
+    
     r_negative = (config.negative_ratio - num_hard / num_positive) * num_positive / (
             num_entries - num_positive - num_hard)  
     r_negative = tf.minimum(r_negative, 1)
