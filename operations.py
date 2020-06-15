@@ -414,7 +414,7 @@ def min_max_norm(X):
     # map [0,1] -> [0.5,0.73] (almost linearly) ([-1, 0] -> [0.26, 0.5])
     return 1.0 / (1.0 + np.exp(-1.0 * X))
 
-# 每一个视频名的结果
+# 处理每一个视频对应的预测结果
 def post_process(df, config):
     class_scores_class = [(df['score_' + str(i)]).values[:].tolist() for i in range(21)]
     class_scores_seg = [[class_scores_class[j][i] for j in range(21)] for i in range(len(df))]
@@ -423,6 +423,7 @@ def post_process(df, config):
 
     # save the top 2 or 3 score element
     # append the largest score element
+    # 首先选取得分最高的结果，然后将最高的得分置为0后选取第二高的得分，以此类推选取前三种最高的得分
     class_type_list = []
     class_score_list = []
     for i in range(len(df)):
