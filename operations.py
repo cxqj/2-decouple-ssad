@@ -409,7 +409,7 @@ def loss_function(anchors_class, anchors_conf, anchors_xmin, anchors_xmax,
 
 
 #################################### POST PROCESS #####################################
-
+# min_max_norm就是个sigmod函数,最终的分类得分为分类得分*置信度
 def min_max_norm(X):
     # map [0,1] -> [0.5,0.73] (almost linearly) ([-1, 0] -> [0.26, 0.5])
     return 1.0 / (1.0 + np.exp(-1.0 * X))
